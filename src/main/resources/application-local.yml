@@ -1,0 +1,7 @@
+# Zero-setup profile: in-memory H2 in PostgreSQL compatibility mode. Channels run in DRY_RUN
+# (added together with the channel adapters).
+spring:
+  datasource:
+    url: jdbc:h2:mem:alerting;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""

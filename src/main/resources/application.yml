@@ -1,0 +1,33 @@
+# Common configuration. Profile-specific values live in application-<profile>.yml.
+server:
+  port: 8090                 # not Spring's usual 8080, which is often taken on developer machines
+
+spring:
+  application:
+    name: alerting-service
+  profiles:
+    # `./gradlew bootRun` without a selected profile starts the zero-setup local profile.
+    default: local
+  threads:
+    virtual:
+      enabled: true          # blocking I/O in the channel adapters runs on virtual threads (docs/02, D-15)
+  jpa:
+    open-in-view: false      # no lazy loading in the web layer
+    hibernate:
+      ddl-auto: validate     # entity mappings must match the Flyway migrations
+  flyway:
+    locations: classpath:db/migration
+
+management:
+  server:
+    # Actuator has its own internal port and is never routed by a public proxy (docs/03, P-03).
+    port: 8081
+    address: 127.0.0.1
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true        # /actuator/health/liveness and /actuator/health/readiness
