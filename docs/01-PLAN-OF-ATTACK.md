@@ -1,6 +1,6 @@
 # 01 — Plan of Attack
 
-> **Status:** DRAFT v0.3 for review · **Phase 1: planning only, no code** · **Branch:** `feature/planning` · **Date:** 2026-11-10
+> **Status:** DRAFT v0.4 for review · Updated after M3 to match the build and the approvals given so far (see the change log) · **Branch:** `feature/mvp-core` · **Date:** 2026-11-10
 > **Companions:** [02-ARCHITECTURE-PROPOSAL.md](02-ARCHITECTURE-PROPOSAL.md) · [03-SECURITY-OPERATIONS-DELIVERY.md](03-SECURITY-OPERATIONS-DELIVERY.md) · **Project directives:** [CLAUDE.md](../CLAUDE.md)
 
 ## 0. How to review this document
@@ -29,7 +29,7 @@
 | 4 | Admin view = operations console (A-09). | User/content management: about +3 h. |
 | 5 | Identity is a stub behind a port; ownership and role checks are real (A-10). | Real authentication (OIDC/JWT): about +4–6 h. |
 
-**Stack approvals needed:** A-15 (Spring Boot 4.1.x vs 3.5.x), A-16 (extra dependencies), A-18 (Tailwind delivery). [Doc 03](03-SECURITY-OPERATIONS-DELIVERY.md) adds three more: A-23 (field-level encryption), A-24 (observability stack) and A-25 (Docker packaging).
+**Stack approvals.** Answered on 2026-11-10: A-15 (Spring Boot 4.1.x) and A-16 (a narrower list of extra dependencies, see §10). Still open: A-18 (Tailwind delivery). [Doc 03](03-SECURITY-OPERATIONS-DELIVERY.md) adds A-23 (field-level encryption), A-24 (observability stack; the Prometheus registry is approved) and A-25 (Docker packaging; not part of the current build).
 
 ## 2. The brief, decoded
 
@@ -91,8 +91,8 @@ Priority: **M** = must, **S** = should, **C** = could (cut first).
 ## 5. Working agreement
 
 1. **Directives (from CLAUDE.md).** No production code without an explicit phase "go". Small, modular changes tied to a milestone. Every architectural assumption is stated so you can challenge it. Resilience first: idempotency, extensible channels, retry/failure tracking, separation of concerns.
-2. **Milestone loop.** (a) Restate scope and the assumptions it touches. (b) Write tests first or alongside. (c) Implement in small commits. (d) `./gradlew check` is green. (e) Put a milestone report in the PR description: what changed, evidence, assumptions touched, deviations, next step. (f) **Stop and wait for your "go".**
-3. **Git.** One branch and one PR per milestone (`feature/m1-scaffold`, `feature/m2-persistence`, …), branched from an up-to-date `main`. Imperative commit messages. No force-push. No secrets in the repo. You merge.
+2. **Milestone loop.** (a) Restate scope and the assumptions it touches. (b) Write tests first or alongside. (c) Implement in small commits. (d) `./gradlew check` is green. (e) Give a milestone report (in the PR description, or at the gate on the single MVP branch): what changed, evidence, assumptions touched, deviations, next step. (f) **Stop and wait for your "go".**
+3. **Git.** Changed on 2026-11-10 at your request: the backend MVP (M1–M6) is built on one branch, `feature/mvp-core`, branched from `main`, with one commit per milestone. The agent commits only when you say so and pushes only when you ask. Imperative commit messages. No force-push. No secrets in the repo. You merge.
 4. **Stack changes.** Any dependency or tool not listed in CLAUDE.md goes through an **[APPROVAL]** item (A-15, A-16, A-18).
 5. **Assumption protocol.** A new assumption gets an ID and enters the register before code depends on it. A changed assumption is edited in place and logged in §13.
 6. **Definition of Done (every milestone).** Compiles cleanly. New behavior has tests. `./gradlew check` is green, including architecture tests. No unexplained TODOs. Docs and the assumption register are updated. The milestone's exit criteria are demonstrated, not claimed.
@@ -117,24 +117,24 @@ Priority: **M** = must, **S** = should, **C** = could (cut first).
 ### Milestone details
 
 **M1 — Scaffold & walking skeleton (1.0 h).**
-*Scope:* Gradle wrapper ≥ 9.1 and a Java 25 toolchain. Spring Boot line per A-15 after a ≤ 30-minute compatibility spike (Gradle, Boot, Mockito/ByteBuddy, JaCoCo, ArchUnit, WireMock, GreenMail on JDK 25). Package skeleton from doc 02 §3. Profiles `local` (H2 in PostgreSQL mode, DRY_RUN channels) and `postgres`. Flyway baseline. Actuator health. JUnit, AssertJ, ArchUnit, JaCoCo wired. `.gitignore` additions. README stub.
-*Exit:* on a clean clone `./gradlew check` is green and `bootRun` reports health UP. Chosen versions are pinned and recorded in the PR.
+*Scope:* Gradle wrapper ≥ 9.1 and a Java 25 toolchain. Spring Boot line per A-15 after a ≤ 30-minute compatibility spike (Gradle, Boot, Mockito/ByteBuddy, JaCoCo on JDK 25). Package skeleton from doc 02 §3. Profiles `local` (H2 in PostgreSQL mode, DRY_RUN channels) and `postgres`. Flyway baseline. Actuator health on an internal management port (doc 03 P-03) with the Prometheus registry (P-06). JUnit 5, AssertJ, Mockito and JaCoCo wired; the architecture rules run as a plain-Java source scanner (D-32). `.gitignore` additions. README stub.
+*Exit:* on a clean clone `./gradlew check` is green and `bootRun` reports health UP. Chosen versions are pinned and recorded in the README. *Status:* built and committed (5862a18).
 
 **M2 — Domain model & persistence (2.0 h).**
-*Scope:* Flyway V1 (all tables, constraints, indexes, sequences), V2 reference data (categories, sources, channel settings), dev-only demo users. Entities and Spring Data repositories. Pure notification state machine. Injected `Clock`.
-*Exit:* migrations apply on H2 (PostgreSQL mode). Unique, foreign-key and CHECK constraints are proven by tests. A table-driven test covers every legal and illegal state transition. Schema reviewed against doc 02 §5.
+*Scope:* Flyway V1 (all tables, constraints, indexes, sequences), V2 reference data (categories and sources; channel settings are created by the channel registry at start-up, doc 02 §5.3), dev-only demo users (a repeatable script in `db/dev`, loaded by the `local` profile only). Entities and Spring Data repositories. Pure notification state machine, including `IN_FLIGHT → CANCELLED` for the dispatcher guard. Injected `Clock`.
+*Exit:* migrations apply on H2 (PostgreSQL mode). Unique, foreign-key and CHECK constraints are proven by tests. A table-driven test covers every legal and illegal state transition. Schema reviewed against doc 02 §5. *Status:* built and committed (cb88c69).
 
 **M3 — Event ingestion & identity stub (2.0 h).**
-*Scope:* Normalized event contract and validation. `POST /api/v1/events` with category/source resolution, derived `externalId`, race-safe idempotent insert. Severity normalizers (earthquake magnitude, market change, news flags). Deterministic simulator service. `CurrentUser` port, header-based stub, role guard. Problem+json error model.
-*Exit:* API tests for 201 (new), 200 (duplicate, same id), 400 (field errors), 401 (no identity), 403 (not admin). A 50-thread duplicate race yields exactly one row. Normalizer boundary tests pass.
+*Scope:* Normalized event contract and validation. `POST /api/v1/events` with category/source resolution, derived `externalId`, race-safe idempotent insert. Severity normalizers (earthquake magnitude, market change, news flags). Deterministic simulator service. `CurrentUser` port, header-based stub, role guard. Problem+json error model. Strict JSON, a 64 KB request limit and the fail-closed stub guard (doc 03 P-01).
+*Exit:* API tests for 201 (new), 200 (duplicate, same id), 400 (field errors), 401 (no identity), 403 (not admin). A 50-thread duplicate race yields exactly one row. Normalizer boundary tests pass. *Status:* built and committed (5e412d4).
 
 **M4 — Rules, destinations & matching (3.5 h).**
-*Scope:* Channel SPI contract, registry and descriptors (validation only; sending arrives in M5). Destinations API (CRUD, revive-on-recreate, masking, quotas, SSRF allowlist for Slack URLs). Rules API (CRUD, validation, enable/disable, soft delete, cancel pending notifications on disable). Candidate query, pure `RuleEvaluator`, cooldown via atomic conditional update (SUPPRESSED rows), fan-out, idempotent re-match, stale-event policy, async trigger after commit, unmatched-event sweeper.
+*Scope:* Channel SPI contract, registry and descriptors (validation only; sending arrives in M5). Destinations API (CRUD, revive-on-recreate, masking, quotas, SSRF allowlist for Slack URLs). Rules API (CRUD, validation, enable/disable, soft delete, cancel pending notifications on disable). Candidate query, pure `RuleEvaluator`, cooldown via atomic conditional update (SUPPRESSED rows), fan-out, idempotent re-match, stale-event policy, async trigger after commit, unmatched-event sweeper. Sample destinations and rules for the demo users in `db/dev` (local profile only, doc 02 §5.6, A-34).
 *Exit:* ≥ 40 table-driven evaluator cases (boundaries, missing fields, type mismatches, unicode keywords). Matcher integration tests: fan-out count, cooldown, re-run five times creates no new rows, two matchers racing on one event produce one set of rows. Ownership tests return 404 for foreign resources. Stale events are not notified.
 
 **M5 — Dispatch & channels (3.5 h).**
 *Scope:* Dispatcher (tick and drain loop, lease claim, send outside any transaction, fenced finalize, per-channel bulkheads on virtual threads). Retry policy (pure, injected randomness), `Retry-After`, error classification, attempt ledger, recovery sweeper for stale leases, channel pause, max-age expiry of old notifications. Slack adapter, Email adapter, DRY_RUN adapters with failure injection. Metrics. Extension-proof test with a test-only third channel.
-*Exit:* scripted-channel suite covers success; transient twice then success; permanent to DEAD; unexpected exception treated as transient; attempts exhausted to DEAD; paused channel holds work; lease-expiry recovery. Four competing dispatchers × 500 notifications send each exactly once. WireMock (Slack) and GreenMail (Email) tests cover every classification row in doc 02 §8.6. ArchUnit confirms core packages do not depend on adapter packages.
+*Exit:* scripted-channel suite covers success; transient twice then success; permanent to DEAD; unexpected exception treated as transient; attempts exhausted to DEAD; paused channel holds work; lease-expiry recovery. Four competing dispatchers × 500 notifications send each exactly once. Slack adapter tests (a fake Slack endpoint on the JDK's built-in HTTP server) and Email adapter tests (a fake `JavaMailSender`) cover every classification row in doc 02 §8.6 (D-35). The architecture test confirms core packages do not depend on adapter packages.
 
 **M6 — Admin & read APIs (1.5 h).**
 *Scope:* Everything in the Admin and User read sections of doc 02 §9 not yet built: stats, event and notification browsers with filters and pagination, requeue/cancel, channel and source toggles, rule overview and disable, user list/deactivate, simulator endpoint, audit log, user notification history.
@@ -145,7 +145,7 @@ Priority: **M** = must, **S** = should, **C** = could (cut first).
 *Exit:* manual walkthrough of DS-1 … DS-5 recorded in the PR; no console errors; keyboard-navigable; usable at narrow widths.
 
 **M8 — Hardening & end-to-end (1.5 h).**
-*Scope:* End-to-end tests of DS-1 … DS-5 through HTTP with WireMock/GreenMail. Load smoke. Security checks (secret masking, SSRF, escaping, log capture). Graceful shutdown (stop claiming, finish in-flight). Configuration validation tests. Fix list.
+*Scope:* End-to-end tests of DS-1 … DS-5 through HTTP with the same fakes (D-35). Load smoke. Security checks (secret masking, SSRF, escaping, log capture). Graceful shutdown (stop claiming, finish in-flight). Configuration validation tests. Fix list.
 *Exit:* full `./gradlew check` green and re-run three times without flakes. Load-smoke numbers recorded. Known-limitations list updated.
 
 **M9 — Docs & demo (1.0 h).**
@@ -206,10 +206,10 @@ Checkpoints after M4 (hour 9.5), M5 (hour 13.0) and M7 (hour 17.5). If cumulativ
 
 1. Prove behavior at the lowest level that can prove it. Keep the pyramid bottom-heavy.
 2. Inject time and randomness (fixed `Clock`, seeded jitter) so retry, cooldown, lease and stale-event logic are tested without sleeping.
-3. Every external boundary is a port with a fake (a scripted channel) and a real adapter tested against a simulator (WireMock, GreenMail).
+3. Every external boundary is a port with a fake (a scripted channel) and a real adapter tested against a simulator built from the JDK and Spring abstractions (D-35).
 4. Failure injection is first-class: timeouts, 5xx, 4xx, 429 with `Retry-After`, malformed responses, crashes mid-flight, lost leases.
 5. Invariants (§8.3) are asserted directly, not inferred from happy paths.
-6. Asynchronous behavior is awaited with bounded Awaitility timeouts. `Thread.sleep` is banned in tests.
+6. Asynchronous behavior is awaited with a small bounded polling helper (no Awaitility, D-35). `Thread.sleep` is banned in tests outside that helper.
 
 ### 8.2 Test pyramid
 
@@ -217,10 +217,10 @@ Checkpoints after M4 (hour 9.5), M5 (hour 13.0) and M7 (hour 17.5). If cumulativ
 |---|---|---|---|---|
 | Unit (pure logic) | Rule evaluator, keyword matching, severity normalizers, retry/backoff math, notification state machine, destination validation, cooldown | JUnit 5, AssertJ, parameterized tests, fixed `Clock`, seeded random | ~150 | Every build |
 | Persistence/integration | Migrations; unique, FK and CHECK constraints; repositories; claim and finalize queries; transaction behavior; concurrent matchers and dispatchers | Spring Boot test, H2 in PostgreSQL mode (PostgreSQL via Testcontainers is a stretch item) | ~40 | Every build |
-| Adapter contract | Slack and Email adapters against simulated providers: success, every failure class, timeouts, malformed responses, escaping | WireMock, GreenMail | ~30 | Every build |
-| API | Status codes, validation, problem+json, ownership and role boundaries, pagination | Spring Boot test with a random port and a REST client | ~60 | Every build |
-| Architecture | Layering; no core → adapter dependencies; no cycles between modules; pure-logic classes free of framework imports | ArchUnit | ~8 rules | Every build |
-| End-to-end scenarios | DS-1 … DS-5 through HTTP including asynchronous delivery | Spring Boot test, Awaitility, WireMock, GreenMail | 5–8 | Every build (≤ 60 s) |
+| Adapter contract | Slack and Email adapters against simulated providers: success, every failure class, timeouts, malformed responses, escaping | A fake Slack endpoint on the JDK's built-in HTTP server; a fake `JavaMailSender` (D-35) | ~30 | Every build |
+| API | Status codes, validation, problem+json, ownership and role boundaries, pagination | Spring Boot test through `MockMvc` against the full context, plus real-port tests where a socket matters (for example chunked uploads) | ~60 | Every build |
+| Architecture | Layering; no core → adapter dependencies; no cycles between modules; pure-logic classes free of framework imports | A plain-Java source scanner (D-32) | ~8 rules (5 built so far) | Every build |
+| End-to-end scenarios | DS-1 … DS-5 through HTTP including asynchronous delivery | Spring Boot test, the same fakes, a bounded wait helper | 5–8 | Every build (≤ 60 s) |
 | UI checks | Core user and admin flows against the running app | Manual checklist (§8.8); headless smoke test is a stretch item | Checklist | Before release |
 | Non-functional smoke | Ingest-to-first-attempt latency, deliveries per second, heap | Scripted load test class excluded from `check` | 1–2 runs | On demand |
 
@@ -237,7 +237,7 @@ Sizes are targets, not claims.
 | I-5 | Every attempt is recorded: once a notification is no longer IN_FLIGHT, the number of attempt rows equals `attempt_count`. | Ledger assertion inside every dispatcher test |
 | I-6 | Pausing or disabling a channel never loses notifications. | Pause/resume test |
 | I-7 | Secrets never appear in API responses or logs. | Masking tests; log-capture assertion in end-to-end tests |
-| I-8 | Adding a channel requires no change to core packages. | Extension-proof test plus ArchUnit rule |
+| I-8 | Adding a channel requires no change to core packages. | Extension-proof test plus an architecture-test rule |
 | I-9 | Only the owner (or an admin) can read or change a user's rules, destinations and notifications. | API authorization matrix tests |
 
 ### 8.4 Requirement traceability
@@ -249,14 +249,14 @@ Sizes are targets, not claims.
 | R-03 | API test: a user sees only their own notifications; filters; pagination | M6 |
 | R-04 | API tests for 201/200/400/401/403; 50-thread duplicate race | M3 |
 | R-05 | Simulator determinism test (same seed, same events); admin endpoint test | M3, M6 |
-| R-06 | Mapper test against a recorded sample payload; poller test with WireMock | stretch |
+| R-06 | Mapper test against a recorded sample payload; poller test against a fake feed on the JDK's HTTP server | stretch |
 | R-07 | Unique-constraint test; matcher re-run ×5; two-matcher race | M4 |
 | R-08 | ≥ 40 table-driven evaluator tests; cooldown tests with a fixed clock | M4 |
 | R-09 | Matcher test with an old event: SKIPPED_STALE, no notifications | M4 |
 | R-10 | Slack and Email contract tests; DS-1 … DS-3 | M5, M8 |
 | R-11 | Scripted-channel suite: backoff schedule, DEAD paths, ledger invariant | M5 |
 | R-12 | Lease-expiry recovery test; four-dispatcher no-duplicate test | M5 |
-| R-13 | Extension-proof test (third channel) plus ArchUnit rule | M5 |
+| R-13 | Extension-proof test (third channel) plus an architecture-test rule | M5 |
 | R-14 | Stats API tests with seeded states; UI walkthrough | M6, M7 |
 | R-15 | List and detail API tests with filters; UI walkthrough | M6, M7 |
 | R-16 | Requeue/cancel/pause tests with audit rows and role boundaries; DS-4 | M6, M8 |
@@ -297,15 +297,15 @@ Every PR carries a milestone report that lists the assumptions it touched. The a
 ### 8.10 What we will not claim
 
 - No benchmark at scale (A-12 is an envelope, smoke-tested only).
-- Slack and SMTP behavior is verified against simulators, not real providers. A real-provider smoke test happens only if you supply a sandbox webhook and SMTP target.
+- Slack and SMTP behavior is verified against simulators, not real providers. A real-provider smoke test happens only if you supply a sandbox webhook and SMTP target. The Email adapter is tested through Spring's `JavaMailSender` abstraction only: SMTP wire behavior (STARTTLS, authentication, reply codes) is not exercised (D-35).
 - H2 is not PostgreSQL. PostgreSQL verification is a stretch item; portable SQL rules (A-17) reduce but do not remove the gap.
 
 ## 9. Risks
 
 | ID | Risk | L | I | Mitigation | Trigger |
 |---|---|---|---|---|---|
-| RISK-01 | JDK 25 compatibility of build and test tooling (Gradle ≥ 9.1, Mockito/ByteBuddy, JaCoCo, ArchUnit, WireMock) | M | H | M1 spike (≤ 30 min) pins versions. Fallbacks: compile with a JDK 25 toolchain under an older Gradle JVM, or (with approval) JDK 21. | Spike fails |
-| RISK-02 | Spring Boot 4.x differences (modular starters, Jackson 3) cost time | M | M | Stay with mainstream APIs; time-boxed spike; fallback 3.5.x (A-15) | Spike exceeds 30 min |
+| RISK-01 | JDK 25 compatibility of build and test tooling (Gradle ≥ 9.1, Mockito/ByteBuddy, JaCoCo) | M | H | M1 spike (≤ 30 min) pins versions. Fallbacks: compile with a JDK 25 toolchain under an older Gradle JVM, or (with approval) JDK 21. **Closed (checked in M1 and M3):** Gradle 9.9.0, a JDK 25 toolchain, JaCoCo 0.8.16 and Mockito all work. | Spike fails |
+| RISK-02 | Spring Boot 4.x differences (modular starters, Jackson 3) cost time | M | M | Stay with mainstream APIs; time-boxed spike; fallback 3.5.x (A-15). **Status after M3:** no blocker; Boot 4.1.2 and Jackson 3 are in use, and Jackson 3 needed explicit strictness settings (A-29). | Spike exceeds 30 min |
 | RISK-03 | M4 and M5 (the densest milestones) overrun | M | H | Slip checkpoints and cut list (§6); stretch items never start early | Slip > 1.5 h at a checkpoint |
 | RISK-04 | H2 behaves differently from PostgreSQL (locking, dialect) | M | M | Portable SQL rules (A-17); H2 in PostgreSQL mode; concurrency tests assert invariants, not timing; PostgreSQL run as stretch | A test passes only on H2 |
 | RISK-05 | Real Slack, SMTP or USGS unavailable to reviewers | H | M | DRY_RUN by default; adapters tested against simulators; LIVE is configuration only | — |
@@ -332,17 +332,25 @@ Status values: PROPOSED, APPROVED, CHANGED, REJECTED. Everything starts as PROPO
 | A-07 | **Channels.** Slack = user-supplied incoming-webhook URL (`https://hooks.slack.com/…`). Email = SMTP to the destination address from one configured sender. | Webhooks need no Slack app, OAuth or public URL. | Slack app or DMs: OAuth install, token storage, scopes (+6–8 h). | PROPOSED |
 | A-08 | **Destination ownership is not verified** (no confirmation email, no Slack handshake). | Verification flows are a feature of their own. | Accepted abuse vector (a user can target someone else's address). Mitigated by quotas and the "test send" stretch item. | PROPOSED |
 | A-09 | **Admin view** = operations console (R-14 … R-16) plus minimal user list/deactivate. | "Admin view" is the only hint in the brief. | User onboarding, billing or moderation: about +3 h. | PROPOSED |
-| A-10 | **Identity is a stub.** `X-User-Id` resolves a seeded user; the role comes from the database; the UI has a "view as" switcher. Ownership and role checks are real and sit behind a `CurrentUser` port. | Real auth is not in the brief and costs hours. | Real auth replaces the stub without touching business code. The stub is not safe for production and is documented as such. | PROPOSED |
+| A-10 | **Identity is a stub.** `X-User-Id` carries the email address of a seeded user (answered 2026-11-10); an unknown and a deactivated user get the same 401 (answered 2026-11-10); the role comes from the database; the UI has a "view as" switcher. Ownership and role checks are real and sit behind an `IdentityResolver` port that yields a `CurrentUser`. The stub fails closed outside the `local` profile (doc 03 P-01, approved and built in M3). | Real auth is not in the brief and costs hours. | Real auth replaces the stub without touching business code. The stub is not safe for production and is documented as such. | APPROVED |
 | A-11 | **Delivery guarantee.** At-least-once delivery with exactly one notification row per (event, rule, destination). Rare duplicates are possible if a worker dies between provider acceptance and our commit. | Exactly-once is unattainable with SMTP and Slack. | A channel that cannot tolerate duplicates needs provider-side idempotency keys. | PROPOSED |
 | A-12 | **Design envelope** (smoke-tested, not benchmarked): ≤ 10,000 users; ≤ 100,000 rules; sustained ≤ 5 events/s with bursts to 50/s; fan-out ≤ 2,000 notifications per event; ≥ 200 deliveries/s per node; first attempt within 10 s at p95. Single node by default, multi-node safe. | No volumes were given; these are plausible for an internal alerting tool. | Higher volumes: see doc 02 §12. | PROPOSED |
 | A-13 | **Time, language, retention.** UTC everywhere; English only; no per-user timezone, quiet hours or digests; data kept forever (no purge job). | Not in the brief. | Each is an add-on feature (doc 02 §12). | PROPOSED |
 | A-14 | **Stale events.** Events older than 6 h at match time are stored but not notified (configurable). | Prevents an alert storm after a poller restart or backfill. | If the window is too short, legitimate late events are dropped; make it per source. | PROPOSED |
-| A-15 | **[APPROVAL] Framework line.** Spring Boot 4.1.x (current stable on spring.io; official docs: Java 17–27, Spring Framework 7) satisfies CLAUDE.md's "3.4+". Fallback: 3.5.x (official docs: Java up to 25). Gradle wrapper ≥ 9.1 so that Gradle itself can run on JDK 25. | 3.4 is well past its minimum support window; 4.1.x is the current line. | Switching later is a mechanical migration; the M1 spike verifies the choice. | PROPOSED |
-| A-16 | **[APPROVAL] Extra dependencies** beyond CLAUDE.md's list: Flyway (migrations), Spring Mail, Actuator + Micrometer. Test only: WireMock, GreenMail, Awaitility, ArchUnit; JaCoCo plugin. Possible later: Testcontainers (PostgreSQL), springdoc-openapi, Resilience4j. Doc 03 (A-24) proposes adding the Prometheus registry. | Versioned schema, real adapters and verifiable behavior need them. | Rejecting one removes the matching verification (without GreenMail the Email adapter is untestable offline). | PROPOSED |
+| A-15 | **[APPROVAL] Framework line.** Spring Boot 4.1.x (current stable on spring.io; official docs: Java 17–27, Spring Framework 7) satisfies CLAUDE.md's "3.4+". Fallback: 3.5.x (official docs: Java up to 25). Gradle wrapper ≥ 9.1 so that Gradle itself can run on JDK 25. **Approved on 2026-11-10; built on Spring Boot 4.1.2 (Spring Framework 7, Hibernate 7.4, Jackson 3) with Gradle 9.9.0.** | 3.4 is well past its minimum support window; 4.1.x is the current line. | Switching later is a mechanical migration; the M1 spike verified the choice. | APPROVED |
+| A-16 | **[APPROVAL] Extra dependencies** beyond CLAUDE.md's list. **Approved on 2026-11-10:** Flyway (migrations), Spring Mail, Actuator + Micrometer, the Micrometer Prometheus registry (doc 03 P-06); test only: JUnit 5, Mockito (if needed), Spring Test (AssertJ ships with it) and the JaCoCo plugin. **Not approved, so not used:** WireMock, GreenMail, Awaitility and ArchUnit; D-32 and D-35 in doc 02 describe the replacements. Possible later, each needing its own approval: Testcontainers (PostgreSQL), springdoc-openapi, Resilience4j. | Versioned schema, real adapters and verifiable behavior need them. | Approving a rejected library later would restore the matching verification (for example GreenMail for SMTP wire behavior). | CHANGED |
 | A-17 | **One portable SQL dialect.** One Flyway migration set for H2 (PostgreSQL mode) and PostgreSQL: sequences, CHECK constraints; no partial or expression indexes, no jsonb operators, no SKIP LOCKED; JSON stored as text. | Lets H2 tests mean something for PostgreSQL. | PostgreSQL-only features would speed some queries but split the schema. | PROPOSED |
 | A-18 | **[APPROVAL] Frontend delivery.** No Node toolchain or bundler. Vanilla ES modules. Tailwind via a committed, prebuilt CSS file (generated once with the Tailwind CLI) so the UI works offline; the CDN script is the fallback. | CLAUDE.md: vanilla JS + Tailwind served statically, zero friction. | CDN-only saves about 0.5 h but needs internet while reviewing. | PROPOSED |
 | A-19 | **Channel modes.** The local profile runs Email and Slack in DRY_RUN (render, log, record as sent; an admin can inject failures for demos). LIVE mode is configuration only (SMTP host, real webhooks). | Reviewers see the full pipeline without credentials. | If you want LIVE by default you must provide an SMTP target and a Slack webhook. | PROPOSED |
-| A-20 | **Naming.** Base package `com.example.alerting` and artifact `alerting-service` are placeholders. | Not specified. | Provide the real group and artifact before M1. | PROPOSED |
+| A-20 | **Naming.** Base package `com.example.alerting` and artifact `alerting-service` are placeholders. **Kept as they are (answered 2026-11-10, Q-10).** | Not specified. | Renaming later is a mechanical refactoring of the package and the artifact name. | APPROVED |
+| A-27 | **Scope of the current build.** The backend only: milestones M1 to M6 on one branch (`feature/mvp-core`), the MVP being the Must and Should requirements of §3. M7 (frontend), Docker and compose packaging (doc 03 P-09, P-10) and Kubernetes are not started. Hardening included: doc 03 P-01, P-03, P-04 and P-06. Answered 2026-11-10. | You asked for the backend first, as an MVP on simulated data (Q-12). | Starting M7 or the packaging needs a new "go". | APPROVED |
+| A-28 | **Event field handling beyond doc 02 §6.1** (as built in M3). Control characters are removed from the title; the summary keeps line breaks and tabs; a blank optional text (summary, URL, region) counts as absent; a blank `source` or `externalId` is an error; null or non-finite attribute values are rejected; `occurredAt` is accepted only as ISO-8601 text and has no lower bound on age (staleness is decided when matching); a URL needs an http or https scheme and an authority and is never fetched. | The doc fixes the main rules; these close the gaps in the least surprising way. | Each is a one-line change in the validator; say which to flip. | PROPOSED |
+| A-29 | **Strict JSON and layered errors** (as built in M3). Unknown fields, a number where text is expected (or the reverse) and a fractional or quoted number for an integer are rejected for the whole API. A body that cannot be read is reported first, then all field problems together, then source and category, then whether the severity can be derived. | Typos and type slips must not pass silently; one round trip per layer is enough. | Lenient parsing is a configuration change; reporting everything in one layer would need a second pass over the payload. | PROPOSED |
+| A-30 | **Market direction.** A move of exactly zero gets `direction` FLAT; doc 02 §6.2 names only UP and DOWN. | A zero move has no direction; FLAT is the honest value and cannot match an UP or DOWN condition. | Omit the attribute or use another value: a one-line change in the normalizer. | PROPOSED |
+| A-31 | **Ingestion semantics** (as built in M3). The insert commits in a transaction of its own even when the caller has one. A failing after-commit listener does not fail the request; the event stays RECEIVED for the sweeper. A duplicate is answered with the stored event's current status, and a different payload under the same id is ignored (A-05). | Keeps idempotency and the "accepted means durable" promise (I-2) simple. | Joining the caller's transaction would lose the clean duplicate answer under a race. | PROPOSED |
+| A-32 | **Identity response details** (as built in M3). A 401 carries no `WWW-Authenticate` header, because the demo header is not a standard scheme. Every `/api/v1` path, an unknown one included, needs an identity before it can answer 404. | Avoids probing which paths exist and keeps the stub honest about not being real authentication. | Real authentication adds the header for its own scheme. | PROPOSED |
+| A-33 | **Event API answers decided on 2026-11-10.** An unknown source is 400 `SOURCE_INVALID`; category and source codes match exactly, including case. | Doc 02 only defined 409 for a disabled source. | A different code or looser matching is a small change in the ingestion service. | APPROVED |
+| A-34 | **Demo data.** The `local` profile loads demo users (built in M2) and, with M4, sample destinations and rules for alice and bob in DRY_RUN mode, from repeatable scripts in `db/dev`. Answered 2026-11-10. | Doc 02 §5.6 intended it; without it the running app has nothing to show. | Dropping the samples removes one script and one test. | APPROVED |
 
 A-21 … A-26 (security, observability and delivery) are proposed in [doc 03 §7](03-SECURITY-OPERATIONS-DELIVERY.md#7-assumptions-and-questions).
 
@@ -361,20 +369,20 @@ A-21 … A-26 (security, observability and delivery) are proposed in [doc 03 §7
 | Q-09 | Email: which sender, domain and provider? | Single SMTP configuration | A-07, A-19 |
 | Q-10 | Real group/artifact names and repository conventions? | Placeholders | A-20 |
 
-Q-11 … Q-14 (hosting, compliance, existing monitoring, Kubernetes) are in [doc 03 §7](03-SECURITY-OPERATIONS-DELIVERY.md#7-assumptions-and-questions). Answered on 2026-11-10: the MVP runs locally on local infrastructure, with simulated data and no existing monitoring stack (Q-14 is inferred from Q-11).
+Q-11 … Q-14 (hosting, compliance, existing monitoring, Kubernetes) are in [doc 03 §7](03-SECURITY-OPERATIONS-DELIVERY.md#7-assumptions-and-questions). Answered on 2026-11-10: the MVP runs locally on local infrastructure, with simulated data and no existing monitoring stack (Q-14 is inferred from Q-11). Q-10 was answered on 2026-11-10 too: keep the placeholder names (A-20).
 
 ## 12. Approval checklist for Phase 2
 
 - [ ] Product interpretations A-03 … A-09 (or your edits)
 - [ ] Identity stub and security posture A-10
 - [ ] Delivery guarantee and design envelope A-11, A-12
-- [ ] **[APPROVAL]** Framework line A-15
-- [ ] **[APPROVAL]** Extra dependencies A-16
+- [x] **[APPROVAL]** Framework line A-15 (4.1.x, approved 2026-11-10)
+- [x] **[APPROVAL]** Extra dependencies A-16 (a narrower list, approved 2026-11-10)
 - [ ] **[APPROVAL]** Frontend delivery A-18
 - [ ] Milestone plan, budget and cut list (§6)
 - [ ] Scope-out list (§7)
 - [ ] Verification strategy and demo scenarios (§8)
-- [ ] "Go" for M1, and the branch/PR convention in §5
+- [x] "Go" for M1 (the branch convention changed to one MVP branch, §5); every later milestone waits for its own "go"
 
 ## 13. Change log
 
@@ -383,3 +391,4 @@ Q-11 … Q-14 (hosting, compliance, existing monitoring, Kubernetes) are in [doc
 | 2026-11-10 | v0.1 | Initial draft for review |
 | 2026-11-10 | v0.2 | Added doc 03 (security, observability, delivery) and pointers to it: scope-out rows, A-16, A-21 … A-26, Q-11 … Q-14. Milestones and budget are unchanged until you choose a package (doc 03 §5). |
 | 2026-11-10 | v0.3 | Recorded the answers to Q-11 … Q-13 (Q-14 inferred) and their effect on the plan (doc 03 §5.4). Milestones and budget are still unchanged. |
+| 2026-11-10 | v0.4 | Aligned with the build after M3 and the approvals given so far: A-10, A-15, A-16, A-20 decided; A-27 … A-34 added (scope, M3 contract details, demo data); one MVP branch in the working agreement (§5); M1 … M3 marked built; channel settings and demo users in M2; sample demo data in M4; architecture tests and provider fakes replace ArchUnit, WireMock, GreenMail and Awaitility (§6, §8, doc 02 D-32 and D-35); Q-10 answered. Milestone hours are not re-baselined. |

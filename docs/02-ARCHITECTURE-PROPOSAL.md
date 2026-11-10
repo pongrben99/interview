@@ -1,6 +1,6 @@
 # 02 — Architecture Proposal
 
-> **Status:** DRAFT v0.2 for review · **Phase 1: design only, no code** · **Branch:** `feature/planning` · **Date:** 2026-11-10
+> **Status:** DRAFT v0.3 for review · Updated after M3 to match the build and the approvals given so far (see the change log) · **Branch:** `feature/mvp-core` · **Date:** 2026-11-10
 > **Companions:** [01-PLAN-OF-ATTACK.md](01-PLAN-OF-ATTACK.md) · [03-SECURITY-OPERATIONS-DELIVERY.md](03-SECURITY-OPERATIONS-DELIVERY.md) · **Project directives:** [CLAUDE.md](../CLAUDE.md)
 > Assumptions (`A-xx`), requirements (`R-xx`) and invariants (`I-x`) live in doc 01 (§10, §3, §8.3). Design decisions (`D-xx`) live here (§13). JSON snippets and property keys below are illustrative contracts, not code.
 
@@ -25,7 +25,7 @@ Channels are the extension point: one SPI discovered by dependency injection, de
 | 5 | **Testability** | Injected clock and randomness, ports for all I/O, pure logic classes, architecture tests |
 | 6 | **Performance (modest)** | Indexed candidate query, JDBC-batched fan-out inserts, virtual-thread I/O |
 
-**Constraints from CLAUDE.md:** Java 25; Spring Boot (line per A-15); Spring Web, Spring Data JPA, Validation; H2 for local and PostgreSQL; Gradle; vanilla JS + Tailwind served statically.
+**Constraints from CLAUDE.md:** Java 25; Spring Boot 4.1.x (A-15, approved); Spring Web, Spring Data JPA, Validation; H2 for local and PostgreSQL; Gradle; vanilla JS + Tailwind served statically.
 
 **Design envelope (A-12):** at most 10,000 users and 100,000 rules; sustained 5 events/s with bursts to 50/s; fan-out up to 2,000 notifications per event; at least 200 deliveries/s per node; first attempt within 10 s at p95; single node by default, safe on several.
 
@@ -108,7 +108,7 @@ src/main/resources/
   static/        index.html, app modules, prebuilt CSS
 ```
 
-### 3.3 Layering rules (enforced by ArchUnit, invariant I-8)
+### 3.3 Layering rules (enforced by architecture tests, D-32; invariant I-8)
 
 1. `web` depends on application services only. Nothing depends on `web`.
 2. Adapters (`channel.email`, `channel.slack`, `channel.dryrun`) depend only on the `channel` SPI and `shared`. Core modules never import adapters.
@@ -460,8 +460,9 @@ INDEX (created_at).
 | Script | Content | Profile |
 |---|---|---|
 | `V1__schema` | All tables, sequences, constraints, indexes | all |
-| `V2__reference_data` | Categories NEWS, MARKET, DISASTER; sources `manual` (PUSH), `simulator` (SIMULATED), `usgs-earthquakes` (POLL, disabled) | all |
-| `dev/V100__demo_data` | Demo users (admin, alice, bob at `example.com` addresses), sample destinations and rules | `local` only |
+| `V2__reference_data` | Categories NEWS, MARKET, DISASTER; sources `manual` (PUSH), `simulator` (SIMULATED), `usgs-earthquakes` (POLL, disabled). Channel settings are not seeded: the channel registry creates them at start-up (§5.3) | all |
+| `db/dev/R__demo_users` | Demo users (admin, alice, bob at `example.com` addresses); repeatable and idempotent (built in M2) | `local` only |
+| `db/dev/R__demo_users_samples` | Sample destinations and rules for alice and bob, in DRY_RUN (planned for M4, A-34). Repeatable scripts run in name order, so this one runs after the users script | `local` only |
 
 ## 6. Events: what "important" means and how events arrive
 
@@ -476,18 +477,18 @@ The system makes no editorial judgment. An event that no rule matches is stored 
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `source` | string | no (default `manual`) | Must match an enabled source code |
-| `externalId` | string ≤ 200 | no | If absent it is derived (§6.5) so that naive clients are still idempotent |
-| `category` | string | yes | Must exist and be enabled |
-| `severity` | integer 1–5 | yes, unless the category has a normalizer and the attributes it needs | |
+| `source` | string | no (default `manual`) | An enabled source code, matched exactly (case-sensitive). Unknown: 400 `SOURCE_INVALID`. Disabled: 409 `SOURCE_DISABLED` |
+| `externalId` | string ≤ 200 | no | If absent it is derived (§6.5) so that naive clients are still idempotent. Present but blank is an error |
+| `category` | string | yes | Must exist and be enabled; matched exactly (case-sensitive) |
+| `severity` | integer 1–5 | yes, unless the category has a normalizer and the attributes it needs | A whole number: `4.5` and `"4"` are rejected |
 | `title` | string ≤ 300 | yes | Trimmed, non-blank, control characters removed |
-| `summary` | string ≤ 2000 | no | |
-| `url` | string ≤ 2000 | no | http or https only |
-| `region` | string ≤ 50 | no | Letters, digits, `_` and `-`; stored upper-case |
-| `occurredAt` | ISO-8601 instant | yes | At most 5 minutes in the future (clock skew) |
-| `attributes` | object of scalars | no | At most 8,000 characters serialized. Keys match `[A-Za-z][A-Za-z0-9_]{0,39}`. Values are string, number or boolean; no nesting or arrays. |
+| `summary` | string ≤ 2000 | no | Line breaks and tabs are kept, other control characters removed; blank counts as absent |
+| `url` | string ≤ 2000 | no | Absolute http or https URL; the service never fetches it |
+| `region` | string ≤ 50 | no | Letters, digits, `_` and `-`; stored upper-case; blank counts as absent |
+| `occurredAt` | ISO-8601 instant | yes | Sent as text; a number is rejected. At most 5 minutes in the future (clock skew); no lower bound, staleness is decided when matching (§6.6) |
+| `attributes` | object of scalars | no | At most 8,000 characters serialized, derived attributes (§6.2) included. Keys match `[A-Za-z][A-Za-z0-9_]{0,39}`. Values are string, finite number or boolean; no nulls, nesting or arrays. |
 
-Unknown JSON fields are rejected so typos do not pass silently.
+The JSON is strict (A-29): unknown fields, a number where text is expected (or the reverse), and a fractional or quoted number for an integer are rejected, so typos and type slips do not pass silently.
 
 Illustrative event:
 
@@ -513,7 +514,7 @@ Scale: **1 INFO, 2 LOW, 3 MEDIUM, 4 HIGH, 5 CRITICAL**. The mappings below are d
 | Category | Input signal | Mapping | Derived attributes |
 |---|---|---|---|
 | DISASTER (earthquake) | `magnitude` | below 4.0 → 1; 4.0–4.9 → 2; 5.0–5.9 → 3; 6.0–6.9 → 4; 7.0 and above → 5. `tsunami = true` adds 1 (maximum 5). | — |
-| MARKET | `changePct` (signed percent move against the previous close) | absolute move below 1 → 1; 1 to below 2 → 2; 2 to below 5 → 3; 5 to below 10 → 4; 10 and above → 5 | `moveMagnitudePct` (absolute value), `direction` (UP or DOWN) |
+| MARKET | `changePct` (signed percent move against the previous close) | absolute move below 1 → 1; 1 to below 2 → 2; 2 to below 5 → 3; 5 to below 10 → 4; 10 and above → 5 | `moveMagnitudePct` (absolute value), `direction` (UP or DOWN; FLAT for a move of exactly zero, A-30) |
 | NEWS | `breaking`, `developing` (booleans), `minor` (boolean) | breaking → 4; developing → 3; minor → 1; otherwise 2 | — |
 | any other category | — | `severity` must be supplied | — |
 
@@ -536,19 +537,20 @@ All paths converge on one use case, `EventIngestionService.ingest(normalizedEven
 ### 6.5 Ingestion pipeline
 
 1. **Authorize.** Admin role (stub identity, A-10).
-2. **Validate.** Bean validation and strict JSON; field limits; reject future-dated events beyond the skew.
+2. **Validate.** Strict JSON, then a validator that collects every field problem so the sender can fix a payload in one round trip (D-33); field limits; reject future-dated events beyond the skew. A body that cannot be read at all (broken JSON, an unknown field, a wrong type) is reported first, before the field rules are checked.
 3. **Resolve.** Source and category must exist and be enabled.
 4. **Normalize.** Trim; upper-case region; derive severity and derived attributes; if `externalId` is absent derive it as the SHA-256 of category, title, occurredAt and region, prefixed `h:` (same payload → same id).
-5. **Dedupe and persist.** Look up (source, externalId). If found, answer 200 with the existing event. Otherwise insert with status RECEIVED in a short transaction. A unique-violation race is caught outside the transaction, the row is re-read, and the answer is 200.
-6. **Publish.** After commit, `EventAccepted(eventId)` is handed to the bounded matcher executor.
+5. **Dedupe and persist.** Look up (source, externalId). If found, answer 200 with the existing event, whatever its current status, and ignore any difference in the payload (A-05). Otherwise insert with status RECEIVED in a short transaction of its own, even if the caller already has one (D-34). A unique-violation race is caught outside the transaction, the row is re-read, and the answer is 200.
+6. **Publish.** After commit, `EventAccepted(eventId)` is handed to the bounded matcher executor. A failing listener never turns the committed ingestion into an error (A-31); the recovery sweeper picks the event up.
 7. **Respond.** `201 {id, status: "RECEIVED", duplicate: false}` (or `200 … duplicate: true`).
 
 | Failure | Response / behavior |
 |---|---|
-| Invalid payload | 400 `application/problem+json` with per-field errors |
+| Invalid payload | 400 `application/problem+json` with code `VALIDATION_FAILED` and per-field errors; a body that is missing or not JSON is `MALFORMED_REQUEST` |
 | Unknown or disabled category | 400 with code `CATEGORY_INVALID` |
+| Unknown source | 400 with code `SOURCE_INVALID` |
 | Disabled source | 409 with code `SOURCE_DISABLED` |
-| Body too large | 413 |
+| Body too large | 413 with code `PAYLOAD_TOO_LARGE` above 64 KB (`alerting.http.max-request-body-bytes`), also for chunked bodies without a declared length |
 | Database unavailable | 503 with `Retry-After`; nothing was accepted, so the sender may retry safely |
 | Matcher fails after commit | Event stays RECEIVED; the recovery sweeper retries up to 5 times, then marks it FAILED (visible in the admin console) |
 
@@ -697,6 +699,7 @@ stateDiagram-v2
     IN_FLIGHT --> SENT: success
     IN_FLIGHT --> RETRY_SCHEDULED: transient failure or lease expired
     IN_FLIGHT --> DEAD: permanent failure or attempts exhausted
+    IN_FLIGHT --> CANCELLED: guard after the claim (destination or user inactive, expired)
     PENDING --> CANCELLED: rule or destination disabled
     RETRY_SCHEDULED --> CANCELLED: rule or destination disabled
     DEAD --> PENDING: admin requeue
@@ -714,10 +717,13 @@ stateDiagram-v2
 | IN_FLIGHT | SENT | Channel returns SUCCESS | Fenced by `locked_by`; sets `sent_at`; attempt row SUCCESS |
 | IN_FLIGHT | RETRY_SCHEDULED | RETRYABLE result, or lease expiry | `attempt_count < max_attempts`; `next_attempt_at` from the retry policy; attempt row RETRYABLE_FAILURE or LEASE_EXPIRED |
 | IN_FLIGHT | DEAD | PERMANENT result, or retryable with no attempts left | reason PERMANENT_FAILURE or ATTEMPTS_EXHAUSTED |
+| IN_FLIGHT | CANCELLED | Dispatcher guard right after the claim (§8.2 step 4): destination not ACTIVE, user inactive, or notification expired | Fenced by `locked_by`; reason recorded; nothing was sent, so no attempt row is written. How `attempt_count` is treated so that I-5 still holds is settled with the dispatcher in M5 |
 | PENDING, RETRY_SCHEDULED | CANCELLED | Rule or destination disabled or deleted, user deactivated, notification expired (older than `max-age`, default 24 h), admin cancel | reason recorded |
 | DEAD | PENDING | Admin requeue | `max_attempts = attempt_count + policy maximum`; `next_attempt_at = now`; audited |
 
 Illegal transitions are rejected by the pure `NotificationStateMachine` and by the `WHERE status = …` guard on every conditional update.
+
+The `IN_FLIGHT → CANCELLED` move resolves a contradiction between this section and the guard in §8.2 step 4 (decided 2026-11-10): the guard runs after the claim, which keeps it free of races, so a claimed notification must be able to end as CANCELLED. The machine has nine legal moves in all. An admin can still cancel only queued notifications (PENDING or RETRY_SCHEDULED).
 
 ### 8.2 Dispatcher mechanics
 
@@ -852,7 +858,7 @@ Renders the message, logs it at INFO without secrets, returns SUCCESS with `prov
 3. Register it as a Spring bean. The registry discovers it, creates its `channel_settings` row, and exposes its descriptor.
 4. Add contract tests against a simulator of the provider.
 
-Done: API validation, UI forms, dispatch, retries, attempt history, pausing and admin visibility all work. **Unchanged:** ingestion, matching, the notification tables, the dispatcher, the API and the UI code. Invariant I-8 is checked by an ArchUnit rule and by a test-only third channel that is registered in test sources and exercised end to end (DS-5).
+Done: API validation, UI forms, dispatch, retries, attempt history, pausing and admin visibility all work. **Unchanged:** ingestion, matching, the notification tables, the dispatcher, the API and the UI code. Invariant I-8 is checked by an architecture-test rule (D-32) and by a test-only third channel that is registered in test sources and exercised end to end (DS-5).
 
 Limit: a channel whose setup needs more than form fields (an OAuth "connect" button) would need a UI extension; v1 descriptors describe forms only.
 
@@ -879,8 +885,8 @@ Base path `/api/v1`. JSON in and out, ISO-8601 UTC timestamps.
 
 **Conventions**
 
-- **Identity (stub, A-10):** `X-User-Id` header. Missing → 401. Wrong role → 403. Someone else's resource → 404.
-- **Errors:** `application/problem+json` with `type`, `title`, `status`, `detail`, a stable `code` and, for validation, an `errors[]` list of field and message.
+- **Identity (stub, A-10):** the `X-User-Id` header carries the user's email address (case-insensitive). A missing, blank, unknown or deactivated user is the same 401, so the answer does not reveal which addresses exist. Wrong role → 403. Someone else's resource → 404. Every `/api/v1` path needs an identity, an unknown path included (A-32). The stub only runs in the `local` profile (P-01).
+- **Errors:** `application/problem+json` with `type`, `title`, `status`, `detail`, `instance`, a stable `code` and, for validation, an `errors[]` list of field and message. `type` is `urn:alerting:problem:` followed by the code in kebab case (D-33). Clients branch on `code`, never on the wording; the codes are listed in the README.
 - **Pagination:** `page` (from 0), `size` (default 20, maximum 100), `sort`. Response: `content`, `page`, `size`, `totalElements`.
 - **Concurrency:** updates carry `version`; a stale update returns 409.
 - **Secrets:** destination secret fields are masked in every response (for example `https://hooks.slack.com/services/…/****`).
@@ -923,7 +929,7 @@ Base path `/api/v1`. JSON in and out, ISO-8601 UTC timestamps.
 | `POST /simulator/run` | Generate events (count capped at 50 per call) |
 | `GET /audit` | Admin action log |
 
-**Operations:** `/actuator/health` (public) and `/actuator/metrics` (admin or `local`). If doc 03's P-03 is approved, these move to a separate internal management port that exposes only health, info and prometheus.
+**Operations:** the Actuator endpoints run on a separate internal management port (8081, bound to 127.0.0.1) and expose only `health` (with liveness and readiness), `info` and `prometheus` (doc 03 P-03 and P-06, approved and built in M1). They are never served on the main port.
 
 **Idempotency by endpoint:** event publishing is idempotent by (source, externalId). Destination creation is idempotent by (user, channel, destination key). Toggle, requeue and cancel endpoints are state transitions guarded by the state machine, so repeating one either succeeds again harmlessly or returns 409 with the current state. Rule creation has no natural key; an `Idempotency-Key` header is a could-have.
 
@@ -967,7 +973,13 @@ All properties are typed, validated at startup and documented in the README.
 | `alerting.channels.slack.mode` | DRY_RUN (local), LIVE otherwise | Delivery mode |
 | `alerting.channels.slack.allowed-hosts` | `hooks.slack.com` | SSRF allowlist |
 | `alerting.channels.slack.bulkhead` | 8 | Concurrent sends |
-| `alerting.identity.mode` | HEADER_STUB | Replace when real auth arrives |
+| `server.port` | 8090 | Main HTTP port (8080 is often taken on developer machines) |
+| `management.server.port` | 8081 | Internal Actuator port, bound to 127.0.0.1 (P-03) |
+| `alerting.http.max-request-body-bytes` | 65536 | Largest accepted API request body; larger bodies get 413 |
+| `alerting.severity.disaster.magnitude-thresholds` | 4.0, 5.0, 6.0, 7.0 | Lower magnitude bounds of severity 2 to 5 (§6.2) |
+| `alerting.severity.market.change-pct-thresholds` | 1.0, 2.0, 5.0, 10.0 | Lower bounds, in absolute percent, of severity 2 to 5 |
+| `alerting.severity.news.breaking`, `.developing`, `.minor`, `.standard` | 4, 3, 1, 2 | Severity per news flag |
+| `alerting.identity.allow-insecure-stub-outside-local` | false | Loud override of the fail-closed stub guard (P-01); leave it off |
 | `alerting.sources.usgs.enabled` | false | Stretch poller |
 | `alerting.simulator.seed` | 42 | Deterministic generators |
 | `spring.jpa.open-in-view` | false | No lazy loading in the web layer |
@@ -984,7 +996,7 @@ Production hardening (edge, authentication, encryption, secrets) is proposed in 
 | Injection into email or Slack content | HTML-escape email HTML; escape `&`, `<`, `>` for Slack; strip CR/LF from subjects and headers |
 | ReDoS | No user-supplied regular expressions; keyword matching by bounded scanning |
 | Insecure direct object reference | Ownership enforced in services; foreign ids return 404 (I-9) |
-| Privilege escalation through the stub header | The stub is documented as demo-only (A-10); admin endpoints need the ADMIN role from the database |
+| Privilege escalation through the stub header | The stub is documented as demo-only (A-10) and fails closed: outside the `local` profile the application refuses to start unless a loudly named override is set (P-01); admin endpoints need the ADMIN role from the database |
 | Oversized or hostile payloads | Request size limit (64 KB), field limits, strict JSON, attribute count and length limits |
 | Resource exhaustion by one user | Quotas (§7.1) |
 | Mass assignment | DTOs only; entities are never bound from requests |
@@ -1012,7 +1024,7 @@ The monitoring and log-shipping stack (Prometheus, Grafana, ELK or Loki) is prop
 
 ### 11.5 Testing seams
 
-Injected `Clock`; injected random source for jitter; worker id supplied by configuration; channels resolved through the registry (tests register scripted fakes); the claim, finalize and sweep operations are plain repository methods so concurrency tests can drive them directly. Time-dependent behavior is tested by moving the clock, never by sleeping.
+Injected `Clock`; injected random source for jitter; worker id supplied by configuration; channels resolved through the registry (tests register scripted fakes); the claim, finalize and sweep operations are plain repository methods so concurrency tests can drive them directly. Time-dependent behavior is tested by moving the clock, never by sleeping. Provider calls are tested against fakes built from the JDK and Spring abstractions (D-35): a fake Slack endpoint on the JDK's built-in HTTP server and a recording fake `JavaMailSender` that throws scripted errors. Waiting for asynchronous work uses a small bounded polling helper.
 
 ## 12. Evolution path
 
@@ -1035,7 +1047,7 @@ Each decision is **PROPOSED** until you approve or change it. "Challenge this if
 
 | ID | Decision | Alternatives considered | Why | Challenge this if… |
 |---|---|---|---|---|
-| D-01 | Modular monolith, package by feature, boundaries enforced by ArchUnit | Microservices; technical tiers (controller/service/repository) | One deployable fits the budget and envelope; boundaries still enforced; modules can be split later | Teams must deploy channels independently |
+| D-01 | Modular monolith, package by feature, boundaries enforced by architecture tests (D-32) | Microservices; technical tiers (controller/service/repository) | One deployable fits the budget and envelope; boundaries still enforced; modules can be split later | Teams must deploy channels independently |
 | D-02 | Database-backed transactional outbox with a polling dispatcher | Kafka or RabbitMQ; in-memory queue or `@Async`; Quartz | Durable, atomic with the matching transaction, runs on H2, no new infrastructure, multi-node safe | You need sub-second latency or more than about 1,000 deliveries/s per node |
 | D-03 | Persist the event first, then match asynchronously after commit; idempotent matcher plus sweeper | Match inside the ingestion transaction; a full queue between ingest and match | An accepted event is durable (I-2); ingest stays fast; failures heal automatically | The API response must include the match count |
 | D-04 | Rule criteria = indexed columns for coarse filters plus JSON criteria for fine filters, evaluated by a pure in-memory evaluator | Everything in JSON; SpEL or CEL expressions; normalized criteria tables | Fast candidate query, no code-injection surface, easy to unit-test, enough for the brief's examples | Users need arbitrary AND/OR/NOT groups |
@@ -1055,6 +1067,10 @@ Each decision is **PROPOSED** until you approve or change it. "Challenge this if
 | D-18 | Cancel not-yet-in-flight notifications when a rule or destination is disabled or deleted; dispatch-time guard; max-age expiry | Deliver anyway; guard only | Matches user intent; prevents stale floods after a pause | Users expect already-matched alerts to still arrive |
 | D-19 | Events are immutable, first write wins | Upsert or revise events | Simple idempotency and audit trail | Source revisions must re-notify (A-05) |
 | D-20 | Micrometer metrics, structured logs with MDC, per-channel health indicators | Logs only | Operability is a requirement (R-18) and cheap with Spring Boot | — |
+| D-32 | Architecture rules are checked by a plain-Java source scanner inside the test suite: module dependencies, pure-logic classes, no entities in `web`, no direct clock access | ArchUnit | ArchUnit is not among the approved dependencies (A-16); the scanner is small, has its own tests, and runs in `check` | The rules outgrow what a scanner can express (then ask to approve ArchUnit) |
+| D-33 | One error model: domain failures carry a stable `code` and are rendered as problem+json by a single handler; a hand-written validator collects every field problem, instead of constraint annotations on DTOs | `@Valid` with bean-validation annotations; ad-hoc error bodies per controller | One shape for every error; senders fix a payload in one round trip; the rules are unit-tested without Spring; a 500 never reveals internals | A framework-generated contract (OpenAPI from annotations) becomes a requirement |
+| D-34 | Ingestion inserts in a transaction of its own (`REQUIRES_NEW`) and catches the unique-key violation outside it; announcing the event after the commit is best-effort | Insert inside the caller's transaction; fail the request when the announcement fails | A lost race becomes a clean "duplicate" answer even when a caller holds a transaction; a committed event is never reported as an error, and the sweeper retries matching | Ingestion must join a larger unit of work |
+| D-35 | Provider tests use fakes built from the JDK and Spring abstractions: a fake Slack endpoint on the JDK's built-in HTTP server, a recording fake `JavaMailSender`, and a small bounded wait helper | WireMock, GreenMail and Awaitility; a hand-written fake SMTP server | WireMock, GreenMail and Awaitility were not approved (A-16); the fakes cover every classification row of §8.6 at no dependency cost | SMTP wire behavior (STARTTLS, authentication, reply codes) must be verified before a release |
 
 D-21 … D-31 (edge, authentication, encryption, observability stack, packaging, migrations, CI) are in [doc 03 §6](03-SECURITY-OPERATIONS-DELIVERY.md#6-decisions).
 
@@ -1064,3 +1080,4 @@ D-21 … D-31 (edge, authentication, encryption, observability stack, packaging,
 |---|---|---|
 | 2026-11-10 | v0.1 | Initial draft for review |
 | 2026-11-10 | v0.2 | Clarified what `destinationIds` contains (§7.1); pointers to doc 03 from §9, §11.2, §11.3 and §13 |
+| 2026-11-10 | v0.3 | Aligned with the build after M3 and the approvals given so far: `IN_FLIGHT → CANCELLED` (§8.1); channel settings and demo data (§5.6); architecture tests instead of ArchUnit (§3.3, D-01, D-32) and provider fakes instead of WireMock, GreenMail and Awaitility (§11.5, D-35); the event contract as built, strict JSON and the error codes (§6.1, §6.2, §6.5, §9, D-33, D-34); the management port and the configuration keys (§9, §11.1); the fail-closed identity stub (§9, §11.2) |
