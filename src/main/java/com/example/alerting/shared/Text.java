@@ -37,6 +37,25 @@ public final class Text {
     }
 
     /**
+     * Makes untrusted text safe to repeat in an error message or a log line: it is shortened and every
+     * control character (line breaks included) is replaced by a question mark.
+     *
+     * @param value the text, may be {@code null}
+     * @param maxLength the longest allowed result before the ellipsis, at least 1
+     * @return the sanitized text; the word {@code null} for {@code null}
+     * @throws IllegalArgumentException if {@code maxLength} is below 1
+     */
+    public static String printable(String value, int maxLength) {
+        if (value == null) {
+            return "null";
+        }
+        StringBuilder printable = new StringBuilder();
+        truncate(value, maxLength).codePoints()
+                .forEach(codePoint -> printable.appendCodePoint(Character.isISOControl(codePoint) ? '?' : codePoint));
+        return printable.toString();
+    }
+
+    /**
      * Normalizes optional text: surrounding whitespace is removed and blank text becomes {@code null}.
      *
      * @param value the text to normalize, may be {@code null}

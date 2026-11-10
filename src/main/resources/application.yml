@@ -11,6 +11,13 @@ spring:
   threads:
     virtual:
       enabled: true          # blocking I/O in the channel adapters runs on virtual threads (docs/02, D-15)
+  jackson:
+    # A strict JSON contract: typos and wrong types are errors, not silently ignored or coerced.
+    deserialization:
+      fail-on-unknown-properties: true   # {"titel": ...} is a 400, not a missing title
+      accept-float-as-int: false         # severity 4.9 is a 400, not a quiet 4
+    mapper:
+      allow-coercion-of-scalars: false   # "4" is not a number, 5 is not a text
   jpa:
     open-in-view: false      # no lazy loading in the web layer
     hibernate:
