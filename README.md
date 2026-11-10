@@ -10,7 +10,8 @@ This repository currently contains the **backend only**; the dashboard comes in 
 The design lives in [`docs/`](docs): [plan of attack](docs/01-PLAN-OF-ATTACK.md),
 [architecture](docs/02-ARCHITECTURE-PROPOSAL.md), [security, operations and delivery](docs/03-SECURITY-OPERATIONS-DELIVERY.md).
 
-**Status:** milestone M1 (walking skeleton) is in place. See the milestone list in the plan.
+**Status:** milestones M1 (walking skeleton) and M2 (domain model and persistence) are in place. See the
+milestone list in the plan.
 
 ## Requirements
 
@@ -51,6 +52,21 @@ Everything else Actuator offers (`env`, `beans`, ...) is deliberately not expose
 |---|---|---|---|
 | `local` (default) | Zero-setup development and demos | In-memory H2 in PostgreSQL compatibility mode | Active when no profile is chosen |
 | `postgres` | Run against PostgreSQL | PostgreSQL at `localhost:5432` by default | Combine with `local`: `SPRING_PROFILES_ACTIVE=local,postgres`. Override the connection with `SPRING_DATASOURCE_URL`, `_USERNAME`, `_PASSWORD`. Logs are JSON (ECS). Configuration only so far: not yet exercised against a real PostgreSQL. |
+
+## Database
+
+The schema is created by Flyway migrations in `src/main/resources/db/migration`, as described in
+[docs/02, section 5](docs/02-ARCHITECTURE-PROPOSAL.md). The same SQL runs on H2 (PostgreSQL mode) and on
+PostgreSQL.
+
+| Migration | Content | Loaded in |
+|---|---|---|
+| `V1__schema.sql` | 11 tables, 8 sequences, unique, foreign-key and CHECK constraints, indexes | every profile |
+| `V2__reference_data.sql` | Categories NEWS, MARKET, DISASTER and the three event sources | every profile |
+| `db/dev/R__demo_users.sql` | Demo users `admin@`, `alice@` and `bob@example.com` (repeatable and idempotent) | the `local` profile only |
+
+Hibernate validates every entity mapping against this schema at start-up (`ddl-auto=validate`), so a
+mapping that does not match the migrations stops the application instead of failing later.
 
 ## Project layout
 
@@ -104,3 +120,10 @@ Anything else (for example WireMock, GreenMail, Awaitility, ArchUnit) is **not**
   - `AlertingApplication`: bootstrap only.
   - the `web` package: HTTP adapters and DTOs. They are exercised by API tests but not gated.
 - Time and randomness are injected, so retry, cooldown and lease logic is tested without sleeping.
+- Test layers: unit tests for pure logic and entity invariants; persistence tests against the real
+  migrations (schema, constraints, entity mapping); and the architecture rules of docs/02 section 3.3,
+  checked by a plain-Java source scanner (module dependencies, pure classes free of framework types,
+  entities never in the web layer, no direct clock access).
+- Trivial accessors have no Javadoc of their own: the field they return is documented, and the mapping
+  round-trip tests exercise all of them.
+- State after M2: 326 tests; business logic at 100 % of lines and 100 % of branches.
