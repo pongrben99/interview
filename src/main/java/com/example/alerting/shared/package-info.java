@@ -1,6 +1,8 @@
 /**
- * Cross-cutting building blocks used by every other module: the injectable clock, common error
- * types with their problem+json mapping, pagination helpers and masking utilities for secrets.
+ * Cross-cutting building blocks used by every other module: the injectable clock, the error model
+ * ({@code DomainException}, {@code ValidationException}, {@code FieldError} and the stable
+ * {@code ErrorCodes}, which the web layer renders as problem+json) and small text and argument helpers.
+ * Pagination and secret masking arrive with the milestones that need them.
  *
  * <p>Dependency rule: depends on no other module of the application.
  */

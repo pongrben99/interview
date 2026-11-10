@@ -46,7 +46,8 @@ class ArchitectureRulesTest {
 
     /** Pure business logic: no framework, persistence or I/O types. */
     private static final Set<String> PURE_CLASSES = Set.of("Guards", "Text", "Severity", "NotificationStateMachine",
-            "NotificationTrigger", "IllegalStateTransitionException");
+            "NotificationTrigger", "IllegalStateTransitionException", "RoleGuard", "ThresholdScale", "Attributes",
+            "Derivation");
 
     private static final List<String> PURE_FORBIDDEN_IMPORTS = List.of("org.springframework", "jakarta.", "javax.",
             "java.sql", "java.io", "java.nio", "java.net");

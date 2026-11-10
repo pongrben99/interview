@@ -66,6 +66,32 @@ class TextTest {
                 .hasMessage("maxLength must be at least 1 but was " + max);
     }
 
+    @Test
+    void printableRendersNullAsTheWordNull() {
+        assertThat(Text.printable(null, 10)).isEqualTo("null");
+    }
+
+    @Test
+    void printableKeepsHarmlessTextUnchanged() {
+        assertThat(Text.printable("title with spaces, 'quotes' and ünïcode 😀", 100))
+                .isEqualTo("title with spaces, 'quotes' and ünïcode 😀");
+    }
+
+    @Test
+    void printableReplacesEveryControlCharacterWithAQuestionMark() {
+        assertThat(Text.printable("a\nb\r\nc\td\u0000e\u007ff\u009fg", 100)).isEqualTo("a?b??c?d?e?f?g");
+    }
+
+    @Test
+    void printableShortensLongTextWithAnEllipsis() {
+        assertThat(Text.printable("x".repeat(50), 10)).isEqualTo("x".repeat(9) + ELLIPSIS);
+    }
+
+    @Test
+    void printableRejectsAMaximumBelowOne() {
+        assertThatThrownBy(() -> Text.printable("abc", 0)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @ParameterizedTest(name = "\"{0}\" is blank")
     @ValueSource(strings = {"", " ", "   ", "\t\n"})
     void blankToNullTurnsBlankTextIntoNull(String value) {
