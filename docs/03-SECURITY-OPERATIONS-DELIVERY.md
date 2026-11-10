@@ -1,8 +1,8 @@
 # 03 — Security, Observability and Delivery Proposal
 
-> **Status:** DRAFT v0.2 for review · **Phase 1 follow-up: design only, no code** · **Branch:** `feature/planning` · **Date:** 2026-11-10
+> **Status:** DRAFT v0.3 for review · Updated after M3: the approved hardening items are recorded and P-01, P-03 and P-06 are built · **Branch:** `feature/mvp-core` · **Date:** 2026-11-10
 > **Companions:** [01-PLAN-OF-ATTACK.md](01-PLAN-OF-ATTACK.md) · [02-ARCHITECTURE-PROPOSAL.md](02-ARCHITECTURE-PROPOSAL.md) · **Project directives:** [CLAUDE.md](../CLAUDE.md)
-> This document answers four review questions. Its new IDs continue the series of docs 01 and 02: plan-impact items `P-01 … P-13` (§5), decisions `D-21 … D-31` (§6), assumptions `A-21 … A-26` and questions `Q-11 … Q-14`, now answered (§7). No Dockerfile, compose file, manifest, pipeline or code is written in this phase.
+> This document answers four review questions. Its new IDs continue the series of docs 01 and 02: plan-impact items `P-01 … P-13` (§5), decisions `D-21 … D-31` (§6), assumptions `A-21 … A-26` and questions `Q-11 … Q-14`, now answered (§7). No Dockerfile, compose file, manifest or pipeline exists yet; of the application items only P-01, P-03 and P-06 are built so far.
 
 ## 0. Short answers
 
@@ -132,7 +132,7 @@ The application stays **stateless** (identity is verified on every request, no s
 | Authorization | Roles and ownership; admin-only paths; foreign ids answer 404 | App | A |
 | Rate limiting | Per-IP and per-identity limits at the edge, tighter on write and admin paths. In-app quotas are always on. An in-app token bucket (for example Bucket4j) only if no edge exists: new dependency, not planned. | Edge, app | B (sample config) / A (quotas) |
 | Request limits | Body limit 64 KB, header limits, connect and read timeouts, maximum connections per IP | App, edge | A (app) / B |
-| Input validation | Bean validation, strict JSON, allowlisted enumerations, field limits | App | A |
+| Input validation | Strict JSON, a validator that reports every field problem (doc 02 D-33), allowlisted enumerations, field limits | App | A |
 | Output encoding | Email HTML escaping; Slack escaping; the UI inserts text, never HTML | App, UI | A |
 | Browser hardening | Same-origin only (no CORS). A Content-Security-Policy that allows only our own scripts and styles, with no inline code (possible because Tailwind is prebuilt, A-18). `X-Content-Type-Options: nosniff`, `frame-ancestors 'none'`, strict `Referrer-Policy`, a `Permissions-Policy` denying unused features. Cookies `Secure`, `HttpOnly`, `SameSite` once sessions exist. | App (static files), edge | A (P-02) |
 | Management endpoints | Actuator on a separate management port bound to the internal network. Only health, info and prometheus are exposed. Never routed by the edge. | App, edge | A (P-03) / B |
@@ -380,7 +380,7 @@ Branch protection: a PR is required, checks must pass, one PR per milestone (doc
 
 ## 5. Plan impact
 
-The budget in doc 01 (20 h of work plus a 4 h reserve) is **unchanged until you choose a package**. After that we update doc 01 §6 and §7 and A-16, and doc 02 §9 (management endpoints move to the internal port) and §11.2–11.3.
+**Decision (2026-11-10).** You did not pick one of the packages below; you picked four items for the backend-only build: P-01 (fail-closed identity stub), P-03 (management port), P-04 (STARTTLS in LIVE mode) and P-06 (Prometheus registry). Docker, compose, frontend and Kubernetes items are out for now, and encryption (P-05) was not selected. **Built so far:** P-03 and P-06 in M1 (the management port 8081 on 127.0.0.1 exposes only health, info and prometheus) and P-01 in M3. P-04 lands with the Email adapter in M5. The four items add 0.70 h to the plan; the budget in doc 01 §6 is not re-baselined. A-16 (doc 01) and doc 02 §9 and §11 are updated. The packages below stay as the original proposal.
 
 ### 5.1 Proposed additions
 
@@ -460,7 +460,7 @@ Every decision is **PROPOSED** until you approve or change it.
 | A-21 | **Production readiness is a blueprint.** This document describes how a real deployment would be secured and operated (tier C). We implement only tier A items and approved tier B items, and never claim more. | If production use is expected, real authentication and the tier C items become mandatory work (rough estimate +10–15 h). | PROPOSED |
 | A-22 | **Authentication stays out of the build** (A-10), but the stub fails closed outside `local` (P-01). Production authentication is OIDC at the edge with JWT verification in the app (D-22). | If real authentication is required now: +4–6 h and a new dependency (Spring Security resource server). | PROPOSED |
 | A-23 | **[APPROVAL] Destination secrets** are encrypted at the field level (P-05, D-23). Without approval they are stored in plaintext, masked in all output, and the risk stays in RISK-08. | Reject: doc 01 §7 stands as written. | PROPOSED |
-| A-24 | **[APPROVAL] Observability.** Micrometer with the Prometheus registry (extends A-16), Prometheus and Grafana as an optional compose profile, logs as ECS JSON on stdout. ELK is compatible but not shipped; Loki with Alloy is the optional shipped choice. | If the organization uses another stack, only the optional profile changes. | PROPOSED |
+| A-24 | **[APPROVAL] Observability.** Micrometer with the Prometheus registry (extends A-16), Prometheus and Grafana as an optional compose profile, logs as ECS JSON on stdout. ELK is compatible but not shipped; Loki with Alloy is the optional shipped choice. | If the organization uses another stack, only the optional profile changes. | CHANGED: the Prometheus registry is approved (P-06) and built; the compose profile and the log stack are not part of the current build |
 | A-25 | **[APPROVAL] Packaging.** A multi-stage Docker image and a docker-compose file are part of the deliverable (Package 1). Kubernetes is reference-only; no Helm, no Terraform. | If Docker is unwanted, drop P-09 and P-10 (−1.25 h); A-02 stands alone. | PROPOSED |
 | A-26 | **Production reference topology.** Managed PostgreSQL, at least two app replicas behind a platform load balancer and a maintained ingress or gateway controller, secrets in a secret manager. Since the MVP runs locally (Q-11), this is documentation only. | Different platform: the principles in §2 still apply; the sample manifests change. | PROPOSED |
 
@@ -477,3 +477,4 @@ Every decision is **PROPOSED** until you approve or change it.
 |---|---|---|
 | 2026-11-10 | v0.1 | Initial draft: security, observability and delivery proposal; `destinationIds` clarified (also in doc 02 §7.1) |
 | 2026-11-10 | v0.2 | Recorded the answers to Q-11 … Q-13 (Q-14 inferred) and their effect on the plan (§5.4, §7); recommendation narrowed to Package 1 |
+| 2026-11-10 | v0.3 | Recorded the hardening items you approved (P-01, P-03, P-04, P-06) and what is built so far (§5); status of A-24 (§7); input validation wording (§2) |
