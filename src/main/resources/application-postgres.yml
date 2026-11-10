@@ -1,0 +1,12 @@
+# PostgreSQL profile. For a local run combine it with the local profile:
+#   SPRING_PROFILES_ACTIVE=local,postgres
+# Override the connection with SPRING_DATASOURCE_URL / _USERNAME / _PASSWORD (docs/03, section 4.3).
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/alerting
+    username: alerting
+
+logging:
+  structured:
+    format:
+      console: ecs           # JSON logs for any log backend (docs/03, section 3.5)
