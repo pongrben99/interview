@@ -3,6 +3,9 @@ spring:
   datasource:
     # A fresh, uniquely named in-memory database per Spring context keeps test classes isolated.
     url: jdbc:h2:mem:${random.uuid};MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+  flyway:
+    # Tests start from the plain schema plus reference data; the demo users have their own test.
+    locations: classpath:db/migration
 
 management:
   server:
